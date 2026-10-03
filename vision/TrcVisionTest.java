@@ -23,74 +23,201 @@
 package trclib.vision;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import org.junit.jupiter.api.Test;
-import trclib.pathdrive.TrcPose3D;
 import trclib.pathdrive.TrcPose2D;
+import trclib.pathdrive.TrcPose3D;
 
 public class TrcVisionTest
 {
     private static final double EPSILON = 1e-2;
-    // REAL CAMERA POSE CONSTANTS: Change these to match your actual robot mounting anytime!
+
+    // Camera pose relative to the robot center.
     private static final double CAM_X = 3.0;        // Inches right from center
     private static final double CAM_Y = 4.5;        // Inches forward from center
     private static final double CAM_Z = 8.0;        // Inches up from ground
-    private static final double CAM_YAW = -45.0;    // Yawed 45 degrees left (Counter-Clockwise)
+    private static final double CAM_YAW = -45.0;    // Yawed 45 degrees left
+
+    /**
+     * Asserts that two 3D poses have the same position and orientation.
+     */
+    private static void assertPoseEquals(TrcPose3D expected, TrcPose3D actual)
+    {
+        assertEquals(expected.x, actual.x, EPSILON, "x");
+        assertEquals(expected.y, actual.y, EPSILON, "y");
+        assertEquals(expected.z, actual.z, EPSILON, "z");
+        assertEquals(expected.pitch, actual.pitch, EPSILON, "pitch");
+        assertEquals(expected.roll, actual.roll, EPSILON, "roll");
+        assertEquals(expected.yaw, actual.yaw, EPSILON, "yaw");
+    }
+
+    /**
+     * Asserts that two 2D poses have the same position and heading.
+     */
+    private static void assertPoseEquals(TrcPose2D expected, TrcPose2D actual)
+    {
+        assertEquals(expected.x, actual.x, EPSILON, "x");
+        assertEquals(expected.y, actual.y, EPSILON, "y");
+        assertEquals(expected.angle, actual.angle, EPSILON, "angle");
+    }
 
     @Test
     public void testTransformCameraSpaceToRobotSpace_SimpleOffset()
     {
-        // Setup camera with no rotation
-        TrcPose3D cameraPose = new TrcPose3D(CAM_X, CAM_Y, CAM_Z, 0.0, 0.0, 0.0);
+        // Camera mounted at a simple offset with no rotation.
+        TrcPose3D cameraPose =
+            new TrcPose3D(CAM_X, CAM_Y, CAM_Z, 0.0, 0.0, 0.0);
 
-        // Target sitting exactly 24 inches straight out of the camera lens
-        double targetDistance = 24.0;
-        TrcPose3D targetPoseCameraSpace = new TrcPose3D(0.0, targetDistance, 0.0, 0.0, 0.0, 0.0);
+        // Target is 24 inches straight ahead of the camera.
+        TrcPose3D targetPoseCameraSpace =
+            new TrcPose3D(0.0, 24.0, 0.0, 0.0, 0.0, 0.0);
 
-        // 🧮 FORMULA FROM COMMENTS:
-        // X_robot = camera_x + target_x
-        // Y_robot = camera_y + target_y
-        // Heading = atan2(X_robot, Y_robot)
-        double expectedX = CAM_X + targetPoseCameraSpace.x;
-        double expectedY = CAM_Y + targetDistance;
-        double expectedHeading = Math.toDegrees(Math.atan2(expectedX, expectedY));
+        TrcPose3D result =
+            TrcVision.TargetInfo.transformCameraSpaceToRobotSpace(
+                targetPoseCameraSpace, cameraPose);
 
-        TrcPose2D result = TrcVision.TargetInfo.transformCameraSpaceToRobotSpace(targetPoseCameraSpace, cameraPose);
-
-        assertNotNull(result);
-        assertEquals(expectedX, result.x, EPSILON);
-        assertEquals(expectedY, result.y, EPSILON);
-        assertEquals(expectedHeading, result.angle, EPSILON);
+        assertPoseEquals(
+            new TrcPose3D(
+                CAM_X,
+                CAM_Y + 24.0,
+                CAM_Z,
+                0.0,
+                0.0,
+                0.0),
+            result);
     }
 
     @Test
     public void testTransformCameraSpaceToRobotSpace_YawedCamera()
     {
-        // Setup camera at the robot center but yawed left
-        TrcPose3D cameraPose = new TrcPose3D(0.0, 0.0, 0.0, 0.0, 0.0, CAM_YAW);
+        // Camera is at the robot center but yawed 45 degrees to the left.
+        TrcPose3D cameraPose =
+            new TrcPose3D(0.0, 0.0, 0.0, 0.0, 0.0, CAM_YAW);
 
-        // Target sitting exactly 50 inches out along the camera lens centerline
-        double targetDistance = 50.0;
-        TrcPose3D targetPoseCameraSpace = new TrcPose3D(0.0, targetDistance, 0.0, 0.0, 0.0, 0.0);
+        // Target is 50 inches straight ahead of the camera.
+        TrcPose3D targetPoseCameraSpace =
+            new TrcPose3D(0.0, 50.0, 0.0, 0.0, 0.0, 0.0);
 
-        // 🧮 FORMULA FROM COMMENTS (Standard 2D Trigonometric Rotation Matrix):
-        // Convert the camera yaw to radians to pass to cos/sin.
-        // Because a target straight out of the lens means its position vector points
-        // along the camera's local forward direction, we project using the camera's angle.
-        double headingRad = Math.toRadians(CAM_YAW);
+        double angleRad = Math.toRadians(CAM_YAW);
+        double expectedX = 50.0 * Math.sin(angleRad);
+        double expectedY = 50.0 * Math.cos(angleRad);
 
-        // X = target * sin(heading), Y = target * cos(heading)
-        // This shifts the unit circle to match your Y-forward, X-right orientation
-        double expectedX = targetDistance * Math.sin(headingRad);
-        double expectedY = targetDistance * Math.cos(headingRad);
-        double expectedHeading = Math.toDegrees(Math.atan2(expectedX, expectedY));
+        TrcPose3D result =
+            TrcVision.TargetInfo.transformCameraSpaceToRobotSpace(
+                targetPoseCameraSpace, cameraPose);
 
-        TrcPose2D result = TrcVision.TargetInfo.transformCameraSpaceToRobotSpace(targetPoseCameraSpace, cameraPose);
+        assertPoseEquals(
+            new TrcPose3D(
+                expectedX,
+                expectedY,
+                0.0,
+                0.0,
+                0.0,
+                CAM_YAW),
+            result);
+    }
 
-        assertNotNull(result);
-        assertEquals(expectedX, result.x, EPSILON);
-        assertEquals(expectedY, result.y, EPSILON);
-        assertEquals(expectedHeading, result.angle, EPSILON);
+    @Test
+    public void testTransformCameraSpaceToRobotSpace_ComplexPose()
+    {
+        TrcPose3D cameraPose =
+            new TrcPose3D(
+                CAM_X, CAM_Y, CAM_Z,
+                10.0, 20.0, CAM_YAW);
+
+        TrcPose3D targetPoseCameraSpace =
+            new TrcPose3D(
+                5.0, 30.0, 2.0,
+                5.0, 10.0, 15.0);
+
+        TrcPose3D result =
+            TrcVision.TargetInfo.transformCameraSpaceToRobotSpace(
+                targetPoseCameraSpace, cameraPose);
+
+        /*
+         * Verify the transformation by reversing it. This avoids hard-coding
+         * Euler-angle composition results for a general 3D rotation.
+         */
+        TrcPose3D recovered = result.relativeTo(cameraPose);
+
+        assertPoseEquals(targetPoseCameraSpace, recovered);
+    }
+
+    @Test
+    public void testProject3dTo2dSpace()
+    {
+        TrcPose3D targetPose3d =
+            new TrcPose3D(
+                12.0, 30.0, 8.0,
+                20.0, 10.0, 45.0);
+
+        TrcPose2D result =
+            TrcVision.TargetInfo.project3dTo2dSpace(targetPose3d);
+
+        double expectedHeading =
+            Math.toDegrees(Math.atan2(12.0, 30.0));
+
+        assertPoseEquals(
+            new TrcPose2D(12.0, 30.0, expectedHeading),
+            result);
+    }
+
+    @Test
+    public void testProject3dTo2dSpace_ZeroHeading()
+    {
+        TrcPose3D targetPose3d =
+            new TrcPose3D(
+                0.0, 24.0, 8.0,
+                15.0, 25.0, 90.0);
+
+        TrcPose2D result =
+            TrcVision.TargetInfo.project3dTo2dSpace(targetPose3d);
+
+        assertPoseEquals(
+            new TrcPose2D(0.0, 24.0, 0.0),
+            result);
+    }
+
+    @Test
+    public void testProject3dTo2dSpace_NegativeHeading()
+    {
+        TrcPose3D targetPose3d =
+            new TrcPose3D(
+                -10.0, 10.0, 5.0,
+                0.0, 0.0, 0.0);
+
+        TrcPose2D result =
+            TrcVision.TargetInfo.project3dTo2dSpace(targetPose3d);
+
+        assertPoseEquals(
+            new TrcPose2D(-10.0, 10.0, -45.0),
+            result);
+    }
+
+    @Test
+    public void testTransformAndProject3dTo2dSpace()
+    {
+        TrcPose3D cameraPose =
+            new TrcPose3D(CAM_X, CAM_Y, CAM_Z, 0.0, 0.0, CAM_YAW);
+
+        TrcPose3D targetPoseCameraSpace =
+            new TrcPose3D(0.0, 50.0, 0.0, 0.0, 0.0, 0.0);
+
+        TrcPose3D targetPoseRobotSpace =
+            TrcVision.TargetInfo.transformCameraSpaceToRobotSpace(
+                targetPoseCameraSpace, cameraPose);
+
+        TrcPose2D targetPose2d =
+            TrcVision.TargetInfo.project3dTo2dSpace(targetPoseRobotSpace);
+
+        double yawRad = Math.toRadians(CAM_YAW);
+        double expectedX = CAM_X + 50.0 * Math.sin(yawRad);
+        double expectedY = CAM_Y + 50.0 * Math.cos(yawRad);
+        double expectedHeading =
+            Math.toDegrees(Math.atan2(expectedX, expectedY));
+
+        assertPoseEquals(
+            new TrcPose2D(expectedX, expectedY, expectedHeading),
+            targetPose2d);
     }
 }   //class TrcVisionTest
