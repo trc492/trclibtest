@@ -32,7 +32,7 @@ public class TrcPose3DTest
     private static final double EPSILON = 1e-3;
 
     /**
-     * Asserts that two poses have the same position and orientation.
+     * Asserts that two 3D poses have the same position and orientation.
      */
     private static void assertPoseEquals(
         TrcPose3D expected, TrcPose3D actual)
@@ -43,6 +43,67 @@ public class TrcPose3DTest
         assertEquals(expected.pitch, actual.pitch, EPSILON, "pitch");
         assertEquals(expected.roll, actual.roll, EPSILON, "roll");
         assertEquals(expected.yaw, actual.yaw, EPSILON, "yaw");
+    }
+
+    /**
+     * Asserts that two 2D poses have the same position and orientation.
+     */
+    private static void assertPoseEquals(
+        TrcPose2D expected, TrcPose2D actual)
+    {
+        assertEquals(expected.x, actual.x, EPSILON, "x");
+        assertEquals(expected.y, actual.y, EPSILON, "y");
+        assertEquals(expected.angle, actual.angle, EPSILON, "angle");
+    }
+
+    @Test
+    public void testToTrcPose2DBearing()
+    {
+        TrcPose3D pose =
+            new TrcPose3D(10.0, 20.0, 30.0, 40.0, 50.0, 60.0);
+
+        TrcPose2D result = pose.toTrcPose2DBearing();
+
+        assertEquals(10.0, result.x, EPSILON);
+        assertEquals(20.0, result.y, EPSILON);
+        assertEquals(
+            Math.toDegrees(Math.atan2(10.0, 20.0)),
+            result.angle,
+            EPSILON);
+    }
+
+    @Test
+    public void testToTrcPose2DBearingCardinalDirections()
+    {
+        assertPoseEquals(
+            new TrcPose2D(0.0, 10.0, 0.0),
+            new TrcPose3D(0.0, 10.0, 5.0).toTrcPose2DBearing());
+
+        assertPoseEquals(
+            new TrcPose2D(10.0, 0.0, 90.0),
+            new TrcPose3D(10.0, 0.0, 5.0).toTrcPose2DBearing());
+
+        assertPoseEquals(
+            new TrcPose2D(0.0, -10.0, 180.0),
+            new TrcPose3D(0.0, -10.0, 5.0).toTrcPose2DBearing());
+
+        assertPoseEquals(
+            new TrcPose2D(-10.0, 0.0, -90.0),
+            new TrcPose3D(-10.0, 0.0, 5.0).toTrcPose2DBearing());
+    }
+
+    @Test
+    public void testToTrcPose2DBearingIgnoresYaw()
+    {
+        TrcPose3D pose1 =
+            new TrcPose3D(10.0, 20.0, 30.0, 40.0, 50.0, 0.0);
+        TrcPose3D pose2 =
+            new TrcPose3D(10.0, 20.0, 30.0, 40.0, 50.0, 120.0);
+
+        TrcPose2D result1 = pose1.toTrcPose2DBearing();
+        TrcPose2D result2 = pose2.toTrcPose2DBearing();
+
+        assertPoseEquals(result1, result2);
     }
 
     @Test
