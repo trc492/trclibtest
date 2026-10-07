@@ -343,6 +343,39 @@ public class TrcPose3DTest
             pose.rotatePose(0.0, 0.0, 0.0));
     }
 
+    /**
+     * Verifies that combined rotations use the TRC extrinsic XYZ convention.
+     *
+     * <p>Extrinsic XYZ means rotations are applied about the fixed world axes
+     * in X, then Y, then Z order.</p>
+     */
+    @Test
+    public void testRotateExtrinsicXyz()
+    {
+        TrcPose3D point =
+            new TrcPose3D(0.0, 1.0, 0.0);
+
+        /*
+         * Start at +Y.
+         *
+         * Extrinsic X +90:
+         *     +Y -> +Z
+         *
+         * Extrinsic Z +90 CW does not affect +Z.
+         *
+         * Therefore the final position must still be +Z.
+         *
+         * This test deliberately combines rotations because single-axis
+         * rotations cannot distinguish the rotation-order convention.
+         */
+        TrcPose3D rotated =
+            point.rotate(90.0, 0.0, 90.0);
+
+        assertPoseEquals(
+            new TrcPose3D(0.0, 0.0, 1.0),
+            rotated);
+    }
+
     @Test
     public void testTranslatePose()
     {
@@ -618,4 +651,311 @@ public class TrcPose3DTest
         assertEquals(0.0, identity.roll, EPSILON);
         assertEquals(0.0, identity.yaw, EPSILON);
     }
+
+    /**
+     * Creates an independent rotation-matrix oracle for the documented TRC
+     * convention: extrinsic XYZ, with clockwise-positive yaw.
+     *
+     * <p>This deliberately does not use TrcPose3D or Apache Rotation. For
+     * column vectors, fixed-axis/extrinsic XYZ is Rz * Ry * Rx. Since TRC yaw
+     * is clockwise-positive, the mathematical Z angle is -yaw.</p>
+     */
+    private static double[][] oracleRotationMatrix(
+        double pitch, double roll, double yaw)
+    {
+        double x = Math.toRadians(pitch);
+        double y = Math.toRadians(roll);
+        double z = Math.toRadians(-yaw);
+        double cx = Math.cos(x);
+        double sx = Math.sin(x);
+        double cy = Math.cos(y);
+        double sy = Math.sin(y);
+        double cz = Math.cos(z);
+        double sz = Math.sin(z);
+
+        return new double[][]
+        {
+            {
+                cz*cy,
+                cz*sy*sx - sz*cx,
+                cz*sy*cx + sz*sx
+            },
+            {
+                sz*cy,
+                sz*sy*sx + cz*cx,
+                sz*sy*cx - cz*sx
+            },
+            {
+                -sy,
+                cy*sx,
+                cy*cx
+            }
+        };
+    }
+
+    /**
+     * Multiplies two 3x3 matrices.
+     */
+    private static double[][] multiply(double[][] a, double[][] b)
+    {
+        double[][] result = new double[3][3];
+
+        for (int row = 0; row < 3; row++)
+        {
+            for (int col = 0; col < 3; col++)
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    result[row][col] += a[row][i]*b[i][col];
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Multiplies a 3x3 matrix by a 3-vector.
+     */
+    private static double[] multiply(double[][] matrix, double[] vector)
+    {
+        return new double[]
+        {
+            matrix[0][0]*vector[0] + matrix[0][1]*vector[1] + matrix[0][2]*vector[2],
+            matrix[1][0]*vector[0] + matrix[1][1]*vector[1] + matrix[1][2]*vector[2],
+            matrix[2][0]*vector[0] + matrix[2][1]*vector[1] + matrix[2][2]*vector[2]
+        };
+    }
+
+    /**
+     * Returns the transpose of a 3x3 matrix.
+     */
+    private static double[][] transpose(double[][] matrix)
+    {
+        return new double[][]
+        {
+            {matrix[0][0], matrix[1][0], matrix[2][0]},
+            {matrix[0][1], matrix[1][1], matrix[2][1]},
+            {matrix[0][2], matrix[1][2], matrix[2][2]}
+        };
+    }
+
+    /**
+     * Asserts that the orientation stored in a pose represents the supplied
+     * independently calculated rotation matrix.
+     *
+     * <p>Comparing matrices instead of Euler components also avoids false
+     * failures when two different Euler triples represent the same rotation.</p>
+     */
+    private static void assertRotationEquals(
+        double[][] expected, TrcPose3D actual)
+    {
+        double[][] actualMatrix =
+            oracleRotationMatrix(actual.pitch, actual.roll, actual.yaw);
+
+        for (int row = 0; row < 3; row++)
+        {
+            for (int col = 0; col < 3; col++)
+            {
+                assertEquals(
+                    expected[row][col], actualMatrix[row][col], EPSILON,
+                    "R[" + row + "][" + col + "]");
+            }
+        }
+    }
+
+    /**
+     * Verifies a general compound rotation against explicit matrix math.
+     */
+    @Test
+    public void testRotateCompoundAgainstIndependentMatrixOracle()
+    {
+        TrcPose3D point = new TrcPose3D(3.0, -4.0, 5.0);
+        double pitch = 27.0;
+        double roll = -31.0;
+        double yaw = 43.0;
+
+        double[] expected = multiply(
+            oracleRotationMatrix(pitch, roll, yaw),
+            new double[] {point.x, point.y, point.z});
+
+        TrcPose3D actual = point.rotate(pitch, roll, yaw);
+
+        assertEquals(expected[0], actual.x, EPSILON, "x");
+        assertEquals(expected[1], actual.y, EPSILON, "y");
+        assertEquals(expected[2], actual.z, EPSILON, "z");
+    }
+
+    /**
+     * Verifies rigid-transform composition against an independent SE(3)
+     * matrix oracle:
+     *
+     *     R = Ra * Rb
+     *     t = ta + Ra * tb
+     */
+    @Test
+    public void testAddRelativePoseAgainstIndependentMatrixOracle()
+    {
+        TrcPose3D a =
+            new TrcPose3D(11.0, -7.0, 19.0, 23.0, -34.0, 57.0);
+        TrcPose3D b =
+            new TrcPose3D(-5.0, 13.0, 2.0, -17.0, 29.0, -41.0);
+
+        double[][] ra = oracleRotationMatrix(a.pitch, a.roll, a.yaw);
+        double[][] rb = oracleRotationMatrix(b.pitch, b.roll, b.yaw);
+        double[][] expectedRotation = multiply(ra, rb);
+        double[] rotatedTranslation =
+            multiply(ra, new double[] {b.x, b.y, b.z});
+
+        double[] expectedTranslation = new double[]
+        {
+            a.x + rotatedTranslation[0],
+            a.y + rotatedTranslation[1],
+            a.z + rotatedTranslation[2]
+        };
+
+        TrcPose3D actual = a.addRelativePose(b);
+
+        assertEquals(expectedTranslation[0], actual.x, EPSILON, "x");
+        assertEquals(expectedTranslation[1], actual.y, EPSILON, "y");
+        assertEquals(expectedTranslation[2], actual.z, EPSILON, "z");
+        assertRotationEquals(expectedRotation, actual);
+    }
+
+    /**
+     * Verifies rigid-transform inversion against an independent SE(3)
+     * matrix oracle:
+     *
+     *     Rinv = R^T
+     *     tinv = -R^T * t
+     */
+    @Test
+    public void testInverseAgainstIndependentMatrixOracle()
+    {
+        TrcPose3D pose =
+            new TrcPose3D(14.0, -9.0, 27.0, 32.0, -21.0, 68.0);
+
+        double[][] rotation =
+            oracleRotationMatrix(pose.pitch, pose.roll, pose.yaw);
+        double[][] expectedRotation = transpose(rotation);
+        double[] expectedTranslation = multiply(
+            expectedRotation,
+            new double[] {-pose.x, -pose.y, -pose.z});
+
+        TrcPose3D actual = pose.inverse();
+
+        assertEquals(expectedTranslation[0], actual.x, EPSILON, "x");
+        assertEquals(expectedTranslation[1], actual.y, EPSILON, "y");
+        assertEquals(expectedTranslation[2], actual.z, EPSILON, "z");
+        assertRotationEquals(expectedRotation, actual);
+    }
+
+    /**
+     * Verifies relativeTo() against the independent rigid-transform equation:
+     *
+     *     Rrel = Rref^T * Rtarget
+     *     trel = Rref^T * (ttarget - tref)
+     */
+    @Test
+    public void testRelativeToAgainstIndependentMatrixOracle()
+    {
+        TrcPose3D reference =
+            new TrcPose3D(8.0, -12.0, 6.0, 19.0, 26.0, -37.0);
+        TrcPose3D target =
+            new TrcPose3D(-15.0, 31.0, 22.0, -28.0, 14.0, 73.0);
+
+        double[][] rref = oracleRotationMatrix(
+            reference.pitch, reference.roll, reference.yaw);
+        double[][] rtarget = oracleRotationMatrix(
+            target.pitch, target.roll, target.yaw);
+        double[][] rrefInv = transpose(rref);
+        double[][] expectedRotation = multiply(rrefInv, rtarget);
+        double[] expectedTranslation = multiply(
+            rrefInv,
+            new double[]
+            {
+                target.x - reference.x,
+                target.y - reference.y,
+                target.z - reference.z
+            });
+
+        TrcPose3D actual = target.relativeTo(reference, true);
+
+        assertEquals(expectedTranslation[0], actual.x, EPSILON, "x");
+        assertEquals(expectedTranslation[1], actual.y, EPSILON, "y");
+        assertEquals(expectedTranslation[2], actual.z, EPSILON, "z");
+        assertRotationEquals(expectedRotation, actual);
+    }
+
+    /**
+     * Verifies chained composition against a directly calculated independent
+     * SE(3) result. This catches order errors that simple inverse round trips
+     * can miss if composition and inverse contain matching mistakes.
+     */
+    @Test
+    public void testChainedCompositionAgainstIndependentMatrixOracle()
+    {
+        TrcPose3D a =
+            new TrcPose3D(4.0, -3.0, 11.0, 17.0, -24.0, 31.0);
+        TrcPose3D b =
+            new TrcPose3D(-6.0, 8.0, 2.0, -29.0, 13.0, 47.0);
+        TrcPose3D c =
+            new TrcPose3D(9.0, 1.0, -5.0, 21.0, 36.0, -18.0);
+
+        double[][] ra = oracleRotationMatrix(a.pitch, a.roll, a.yaw);
+        double[][] rb = oracleRotationMatrix(b.pitch, b.roll, b.yaw);
+        double[][] rc = oracleRotationMatrix(c.pitch, c.roll, c.yaw);
+        double[][] rab = multiply(ra, rb);
+        double[][] expectedRotation = multiply(rab, rc);
+
+        double[] rbTc = multiply(rb, new double[] {c.x, c.y, c.z});
+        double[] tbPlusRbTc = new double[]
+        {
+            b.x + rbTc[0],
+            b.y + rbTc[1],
+            b.z + rbTc[2]
+        };
+        double[] raTerm = multiply(ra, tbPlusRbTc);
+        double[] expectedTranslation = new double[]
+        {
+            a.x + raTerm[0],
+            a.y + raTerm[1],
+            a.z + raTerm[2]
+        };
+
+        TrcPose3D actual = a.addRelativePose(b).addRelativePose(c);
+
+        assertEquals(expectedTranslation[0], actual.x, EPSILON, "x");
+        assertEquals(expectedTranslation[1], actual.y, EPSILON, "y");
+        assertEquals(expectedTranslation[2], actual.z, EPSILON, "z");
+        assertRotationEquals(expectedRotation, actual);
+    }
+
+    /**
+     * Exercises orientation extraction close to, but not at, the XYZ Euler
+     * singularity. The oracle comparison is matrix-based because Euler angles
+     * are not unique near a singularity.
+     */
+    @Test
+    public void testNearGimbalLockAgainstIndependentMatrixOracle()
+    {
+        TrcPose3D a =
+            new TrcPose3D(1.0, 2.0, 3.0, 12.0, 88.5, -33.0);
+        TrcPose3D b =
+            new TrcPose3D(-4.0, 5.0, 6.0, -7.0, 0.4, 19.0);
+
+        double[][] ra = oracleRotationMatrix(a.pitch, a.roll, a.yaw);
+        double[][] rb = oracleRotationMatrix(b.pitch, b.roll, b.yaw);
+        double[][] expectedRotation = multiply(ra, rb);
+        double[] rotatedTranslation =
+            multiply(ra, new double[] {b.x, b.y, b.z});
+
+        TrcPose3D actual = a.addRelativePose(b);
+
+        assertEquals(a.x + rotatedTranslation[0], actual.x, EPSILON, "x");
+        assertEquals(a.y + rotatedTranslation[1], actual.y, EPSILON, "y");
+        assertEquals(a.z + rotatedTranslation[2], actual.z, EPSILON, "z");
+        assertRotationEquals(expectedRotation, actual);
+    }
+
 }   //class TrcPose3DTest

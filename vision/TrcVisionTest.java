@@ -71,9 +71,7 @@ public class TrcVisionTest
                 0.0, 24.0, 0.0,
                 0.0, 0.0, 0.0);
 
-        TrcPose3D result =
-            TrcVision.TargetInfo.transformCameraSpaceToRobotSpace(
-                targetPoseCameraSpace, cameraPose);
+        TrcPose3D result = cameraPose.addRelativePose(targetPoseCameraSpace);
 
         assertNotNull(result);
 
@@ -99,9 +97,7 @@ public class TrcVisionTest
                 0.0, 50.0, 0.0,
                 0.0, 0.0, 0.0);
 
-        TrcPose3D result =
-            TrcVision.TargetInfo.transformCameraSpaceToRobotSpace(
-                targetPoseCameraSpace, cameraPose);
+        TrcPose3D result = cameraPose.addRelativePose(targetPoseCameraSpace);
 
         double yawRad = Math.toRadians(CAM_YAW);
         double expectedX = 50.0 * Math.sin(yawRad);
@@ -129,9 +125,7 @@ public class TrcVisionTest
                 5.0, 12.0, 7.0,
                 15.0, 25.0, 30.0);
 
-        TrcPose3D result =
-            TrcVision.TargetInfo.transformCameraSpaceToRobotSpace(
-                targetPoseCameraSpace, cameraPose);
+        TrcPose3D result = targetPoseCameraSpace.addRelativePose(targetPoseCameraSpace);
 
         TrcPose3D recovered =
             result.relativeTo(cameraPose);
